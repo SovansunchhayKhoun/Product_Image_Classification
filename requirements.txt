@@ -114,6 +114,7 @@ notebook-shim=0.2.3=py310hca03da5_0
 numexpr=2.10.1=py310h5d9532f_0
 numpy=2.0.1=py310h3b2db8e_1
 numpy-base=2.0.1=py310ha9811e2_1
+opencv-python=4.10.0.84=pypi_0
 openjpeg=2.5.2=h54b8e55_0
 openldap=2.6.4=he7ef289_0
 openssl=3.0.15=h80987f9_0
@@ -157,6 +158,7 @@ requests=2.32.3=py310hca03da5_1
 rfc3339-validator=0.1.4=py310hca03da5_0
 rfc3986-validator=0.1.1=py310hca03da5_0
 rpds-py=0.10.6=py310h2aea54e_1
+scipy=1.14.1=py310hd336fd7_0
 send2trash=1.8.2=py310hca03da5_0
 setuptools=75.1.0=py310hca03da5_0
 sip=6.7.12=py310h313beb8_0
