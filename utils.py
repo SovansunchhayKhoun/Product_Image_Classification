@@ -21,7 +21,8 @@ def convert_images_to_jpg(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     # Loop through all files in the input directory
-    for filename in os.listdir(input_dir):
+    for i, filename in enumerate(os.listdir(input_dir)):
+        print(f"{i}/{len(os.listdir(input_dir))}")
         input_path = os.path.join(input_dir, filename)
         output_filename = os.path.splitext(filename)[0] + ".jpg"
         output_path = os.path.join(output_dir, output_filename)
@@ -99,8 +100,8 @@ def resize_img_and_noise_filter(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     # Process each image
-    for filename in os.listdir(input_dir):
-        print(f"Resizing {input_dir+filename}")
+    for i, filename in enumerate(os.listdir(input_dir)):
+        print(f"{i}/{len(os.listdir(input_dir))} -> Resizing {input_dir+filename}")
         # Open the image
         img_path = os.path.join(input_dir, filename)
         img = Image.open(img_path)
