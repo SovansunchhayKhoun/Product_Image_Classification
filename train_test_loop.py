@@ -1,136 +1,187 @@
 from tqdm.auto import tqdm
 import torch
 from torch import nn
+from typing import Dict, Tuple, Optional
+import warnings
+from pathlib import Path
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
+class TrainingConfig:
+    def __init__(
+        self,
+        epochs: int = 5,
+        early_stopping_patience: Optional[int] = None,
+        early_stopping_min_delta: float = 0.001,
+        checkpoint_dir: Optional[str] = None,
+        device: Optional[str] = None
+    ):
+        self.epochs = epochs
+        self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_min_delta = early_stopping_min_delta
+        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else None
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
 def train_step(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     loss_fn: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
-):
-    # Put model in train mode
+    device: str,
+    scaler: Optional[torch.cuda.amp.GradScaler] = None,
+) -> Tuple[float, float]:
     model.train()
+    total_loss = 0
+    total_correct = 0
+    total_samples = 0
 
-    # Setup train loss and train accuracy values
-    train_loss, train_acc = 0, 0
-
-    # Loop through data loader data batches
     for batch, (X, y) in enumerate(dataloader):
-        # Send data to target device
         X, y = X.to(device), y.to(device)
+        
+        # Automated mixed precision training if scaler is provided
+        if scaler is not None:
+            with torch.cuda.amp.autocast():
+                y_pred = model(X)
+                loss = loss_fn(y_pred, y)
+            
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            y_pred = model(X)
+            loss = loss_fn(y_pred, y)
+            loss.backward()
+            optimizer.step()
 
-        # 1. Forward pass
-        y_pred = model(X)
+        optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
+        
+        # Calculate accuracy
+        with torch.no_grad():
+            y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
+            total_correct += (y_pred_class == y).sum().item()
+            total_samples += y.size(0)
+            total_loss += loss.item() * y.size(0)  # Weight loss by batch size
 
-        # 2. Calculate  and accumulate loss
-        loss = loss_fn(y_pred, y)
-        train_loss += loss.item()
-
-        # 3. Optimizer zero grad
-        optimizer.zero_grad()
-
-        # 4. Loss backward
-        loss.backward()
-
-        # 5. Optimizer step
-        optimizer.step()
-
-        # Calculate and accumulate accuracy metrics across all batches
-        y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        train_acc += (y_pred_class == y).sum().item() / len(y_pred)
-
-    # Adjust metrics to get average loss and accuracy per batch
-    train_loss = train_loss / len(dataloader)
-    train_acc = train_acc / len(dataloader)
-    return train_loss, train_acc
-
+    avg_loss = total_loss / total_samples
+    accuracy = total_correct / total_samples
+    return avg_loss, accuracy
 
 def test_step(
     model: torch.nn.Module,
     dataloader: torch.utils.data.DataLoader,
     loss_fn: torch.nn.Module,
-):
-    # Put model in eval mode
+    device: str,
+) -> Tuple[float, float]:
     model.eval()
+    total_loss = 0
+    total_correct = 0
+    total_samples = 0
 
-    # Setup test loss and test accuracy values
-    test_loss, test_acc = 0, 0
-
-    # Turn on inference context manager
     with torch.inference_mode():
-        # Loop through DataLoader batches
-        for batch, (X, y) in enumerate(dataloader):
-            # Send data to target device
+        for X, y in dataloader:
             X, y = X.to(device), y.to(device)
+            
+            # Forward pass
+            test_pred = model(X)
+            loss = loss_fn(test_pred, y)
+            
+            # Calculate metrics
+            test_pred_labels = test_pred.argmax(dim=1)
+            total_correct += (test_pred_labels == y).sum().item()
+            total_samples += y.size(0)
+            total_loss += loss.item() * y.size(0)
 
-            # 1. Forward pass
-            test_pred_logits = model(X)
+    avg_loss = total_loss / total_samples
+    accuracy = total_correct / total_samples
+    return avg_loss, accuracy
 
-            # 2. Calculate and accumulate loss
-            loss = loss_fn(test_pred_logits, y)
-            test_loss += loss.item()
+def save_checkpoint(
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    epoch: int,
+    loss: float,
+    checkpoint_dir: Path,
+    filename: str = "checkpoint.pt"
+) -> None:
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / filename
+    
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss,
+    }, checkpoint_path)
 
-            # Calculate and accumulate accuracy
-            test_pred_labels = test_pred_logits.argmax(dim=1)
-            test_acc += (test_pred_labels == y).sum().item() / len(test_pred_labels)
-
-    # Adjust metrics to get average loss and accuracy per batch
-    test_loss = test_loss / len(dataloader)
-    test_acc = test_acc / len(dataloader)
-    return test_loss, test_acc
-
-
-# 1. Take in various parameters required for training and test steps
 def train(
     model: torch.nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
     test_dataloader: torch.utils.data.DataLoader,
     optimizer: torch.optim.Optimizer,
+    config: TrainingConfig,
     loss_fn: torch.nn.Module = nn.CrossEntropyLoss(),
-    epochs: int = 5,
-):
-
-    # 2. Create empty results dictionary
-    results = {"train_loss": [], "train_acc": [], "test_loss": [], "test_acc": []}
-
-    # 3. Loop through training and testing steps for a number of epochs
-    for epoch in tqdm(range(epochs)):
+) -> Dict[str, list]:
+    results = {
+        "train_loss": [], "train_acc": [],
+        "test_loss": [], "test_acc": []
+    }
+    
+    # Initialize mixed precision training if using CUDA
+    scaler = torch.cuda.amp.GradScaler() if config.device == "cuda" else None
+    
+    # Early stopping setup
+    best_loss = float('inf')
+    patience_counter = 0
+    
+    # Training loop
+    for epoch in tqdm(range(config.epochs)):
         train_loss, train_acc = train_step(
             model=model,
             dataloader=train_dataloader,
             loss_fn=loss_fn,
             optimizer=optimizer,
+            device=config.device,
+            scaler=scaler
         )
+        
         test_loss, test_acc = test_step(
-            model=model, dataloader=test_dataloader, loss_fn=loss_fn
+            model=model,
+            dataloader=test_dataloader,
+            loss_fn=loss_fn,
+            device=config.device
         )
-
-        # 4. Print out what's happening
+        
+        # Update results
+        results["train_loss"].append(train_loss)
+        results["train_acc"].append(train_acc)
+        results["test_loss"].append(test_loss)
+        results["test_acc"].append(test_acc)
+        
+        # Print progress
         print(
-            f"Epoch: {epoch+1} | "
+            f"Epoch: {epoch+1}/{config.epochs} | "
             f"train_loss: {train_loss:.4f} | "
             f"train_acc: {train_acc:.4f} | "
             f"test_loss: {test_loss:.4f} | "
             f"test_acc: {test_acc:.4f}"
         )
-
-        # 5. Update results dictionary
-        # Ensure all data is moved to CPU and converted to float for storage
-        results["train_loss"].append(
-            train_loss.item() if isinstance(train_loss, torch.Tensor) else train_loss
-        )
-        results["train_acc"].append(
-            train_acc.item() if isinstance(train_acc, torch.Tensor) else train_acc
-        )
-        results["test_loss"].append(
-            test_loss.item() if isinstance(test_loss, torch.Tensor) else test_loss
-        )
-        results["test_acc"].append(
-            test_acc.item() if isinstance(test_acc, torch.Tensor) else test_acc
-        )
-
-    # 6. Return the filled results at the end of the epochs
+        
+        # Save checkpoint if specified
+        if config.checkpoint_dir:
+            save_checkpoint(
+                model, optimizer, epoch, test_loss,
+                config.checkpoint_dir,
+                f"checkpoint_epoch_{epoch+1}.pt"
+            )
+        
+        # Early stopping check
+        if config.early_stopping_patience:
+            if test_loss < best_loss - config.early_stopping_min_delta:
+                best_loss = test_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= config.early_stopping_patience:
+                print(f"\nEarly stopping triggered after {epoch + 1} epochs")
+                break
+    
     return results
