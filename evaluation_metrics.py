@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score, f1_score, accuracy_score
 import seaborn as sns
 
 
@@ -112,3 +112,46 @@ def visualize_predictions(model, data_loader, classes, device, num_images=10):
     
     plt.tight_layout()
     plt.show()
+
+def show_classification_metrics(model, data_loader, class_names, device):
+    model.eval()  # Set model to evaluation mode
+    
+    all_preds = []
+    all_labels = []
+
+    # Collect all predictions and labels
+    with torch.no_grad():
+        for images, labels in data_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+
+            outputs = model(images)
+            _, preds = torch.max(outputs, 1)
+
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    # Calculate metrics
+    precision = precision_score(all_labels, all_preds, average='weighted')
+    recall = recall_score(all_labels, all_preds, average='weighted')
+    f1 = f1_score(all_labels, all_preds, average='weighted')
+    accuracy = accuracy_score(all_labels, all_preds)
+    
+    # Display metrics
+    metrics = {
+        'Precision': precision,
+        'Recall': recall,
+        'F1 Score': f1,
+        'Accuracy': accuracy
+    }
+    
+    plt.figure(figsize=(8, 6))
+    plt.bar(metrics.keys(), metrics.values(), color=['skyblue', 'orange', 'green', 'red'])
+    plt.title('Classification Metrics')
+    plt.ylabel('Score')
+    plt.ylim(0, 1)
+    plt.show()
+
+    # Print metrics in text form
+    for metric, value in metrics.items():
+        print(f"{metric}: {value:.4f}")

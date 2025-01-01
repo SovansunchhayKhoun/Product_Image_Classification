@@ -6,3 +6,5 @@
 dataset/*
 !dataset/README.md
 __pycache__
+
+checkpoints
