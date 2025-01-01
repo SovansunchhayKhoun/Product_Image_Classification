@@ -8,4 +8,5 @@ dataset/*
 __pycache__
 
 checkpoints
+models/*
 !models/README.md
