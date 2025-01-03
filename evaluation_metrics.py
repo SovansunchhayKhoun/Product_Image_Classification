@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, precision_score, recall_score, f1_score, accuracy_score
 import seaborn as sns
-
+import random
+import math
 
 def plot_loss_curves(results):
     # def plot_loss_curves(results: Dict[str, List[float]]):
@@ -78,38 +79,49 @@ def evaluate_with_confusion_matrix(model, data_loader, class_names, device):
 
 def visualize_predictions(model, data_loader, classes, device, num_images=10):
     model.eval()  # Set the model to evaluation mode
-    images_shown = 0
 
-    fig, axes = plt.subplots(1, num_images, figsize=(15, 5))
-    axes = axes.flatten()  # Flatten the axes array for easier iteration
+    # Collect all data for random sampling
+    all_images = []
+    all_labels = []
+
+    # Extract all images and labels from the data loader
+    for images, labels in data_loader:
+        all_images.append(images)
+        all_labels.append(labels)
+
+    # Flatten the list and stack tensors
+    all_images = torch.cat(all_images)
+    all_labels = torch.cat(all_labels)
+
+    # Randomly choose indices for visualization
+    indices = random.sample(range(len(all_images)), num_images)
+
+    # Determine grid size (rows and columns)
+    num_cols = min(5, num_images)  # Limit to 5 columns
+    num_rows = math.ceil(num_images / num_cols)
+
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 3, num_rows * 3))
+    axes = axes.flatten()  # Flatten to easily iterate
 
     with torch.no_grad():
-        for images, labels in data_loader:
-            images, labels = images.to(device), labels.to(device)
+        # Get selected images and labels
+        images = all_images[indices].to(device)
+        labels = all_labels[indices].to(device)
 
-            # Predictions
-            outputs = model(images)
-            _, preds = torch.max(outputs, 1)
+        # Predictions
+        outputs = model(images)
+        _, preds = torch.max(outputs, 1)
 
-            # Loop through the batch
-            for img, label, pred, ax in zip(images, labels, preds, axes):
-                if images_shown >= num_images:
-                    break
-                
-                # Unnormalize image for visualization
-                img = img.cpu().numpy().transpose((1, 2, 0))  # CHW -> HWC
-                img = img * 0.5 + 0.5  # Reverse normalization
+        for i, (img, label, pred, ax) in enumerate(zip(images, labels, preds, axes)):
+            # Unnormalize image for visualization
+            img = img.cpu().numpy().transpose((1, 2, 0))  # CHW -> HWC
+            img = img * 0.5 + 0.5  # Reverse normalization
 
-                # Plot the image
-                ax.imshow(np.clip(img, 0, 1))
-                ax.axis('off')
-                ax.set_title(f"True: {classes[label.item()]}\nPred: {classes[pred.item()]}")
-                
-                images_shown += 1
+            # Plot the image
+            ax.imshow(np.clip(img, 0, 1))
+            ax.axis('off')
+            ax.set_title(f"True: {classes[label.item()]}\nPred: {classes[pred.item()]}")
 
-            if images_shown >= num_images:
-                break
-    
     plt.tight_layout()
     plt.show()
 
@@ -145,12 +157,12 @@ def show_classification_metrics(model, data_loader, class_names, device):
         'Accuracy': accuracy
     }
     
-    plt.figure(figsize=(8, 6))
-    plt.bar(metrics.keys(), metrics.values(), color=['skyblue', 'orange', 'green', 'red'])
-    plt.title('Classification Metrics')
-    plt.ylabel('Score')
-    plt.ylim(0, 1)
-    plt.show()
+    # plt.figure(figsize=(8, 6))
+    # plt.bar(metrics.keys(), metrics.values(), color=['skyblue', 'orange', 'green', 'red'])
+    # plt.title('Classification Metrics')
+    # plt.ylabel('Score')
+    # plt.ylim(0, 1)
+    # plt.show()
 
     # Print metrics in text form
     for metric, value in metrics.items():
