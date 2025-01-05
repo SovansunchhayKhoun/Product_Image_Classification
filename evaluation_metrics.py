@@ -120,7 +120,7 @@ def visualize_predictions(model, data_loader, classes, device, num_images=10):
             # Plot the image
             ax.imshow(np.clip(img, 0, 1))
             ax.axis('off')
-            ax.set_title(f"True: {classes[label.item()]}\nPred: {classes[pred.item()]}")
+            ax.set_title(f"True: {classes[label.item()]}\nPred: {classes[pred.item()]}", c="green" if classes[label.item()] == classes[pred.item()] else "red")
 
     plt.tight_layout()
     plt.show()
