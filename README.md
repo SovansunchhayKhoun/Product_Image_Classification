@@ -24,6 +24,8 @@ pip install -r requirements.txt
 jupyter notebook
 ```
 
+> The `main.ipynb` is the main file of our project. It outlines how we pre-process our dataset and all the different types of models (the best version) we have trained is evaluated and compared in this file.
+
 ## Author
 
 - Khoun Sovansunchhay
